@@ -18,6 +18,7 @@ plugins {
     alias(libs.plugins.android.kotlin.multiplatform.library)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.roborazzi)
     alias(libs.plugins.vanniktech.mavenPublish)
     alias(libs.plugins.binaryCompatibilityValidator)
     id("io.github.mobilebytelabs.remoteconfig.dokka")
@@ -53,6 +54,15 @@ version = providers.gradleProperty("kmpremoteconfig.version").get()
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
 kotlin {
+    // Toolchain 21, not just jvmTarget 21.
+    //
+    // `jvmTarget` controls the bytecode we EMIT; it says nothing about the JDK that RUNS the
+    // tests. Gradle here launches on JDK 17, so with target-only the suite still failed with
+    // UnsupportedClassVersionError the moment it touched KmpToolkit's Java-21 classes — the
+    // exact error the raise was meant to remove. Declaring the toolchain makes the compile and
+    // test JVMs explicit instead of inheriting whatever JDK started the daemon.
+    jvmToolchain(21)
+
     applyDefaultHierarchyTemplate()
 
     jvm()
@@ -74,7 +84,19 @@ kotlin {
         }
         withDeviceTestBuilder { sourceSetTreeName = "test" }
         compilerOptions {
-            jvmTarget = JvmTarget.JVM_11
+            // JVM 21, raised from 11 (2026-10-09).
+            //
+            // KmpToolkit publishes its JVM artifacts at Java 21 — cmp-observe already, and
+            // cmp-open-url which the ActionDispatcher needs so a dashboard-authored CTA opens
+            // something. At JVM 11 those classes cannot load: cmp-observe's already degrades
+            // silently (RemoteConfigService catches the UnsupportedClassVersionError and falls
+            // back on the SDK version header), and cmp-open-url would have been a hard failure
+            // on the CTA path plus untestable, since this module's suite runs on the JVM.
+            //
+            // The cost is deliberate and is the operator's call: consumers on JVM 11-20 can no
+            // longer take this library. Raising the floor was chosen over shipping CTAs that
+            // only work on three of six platforms.
+            jvmTarget = JvmTarget.JVM_21
         }
         androidResources.enable = true
     }
@@ -97,10 +119,27 @@ kotlin {
 
     sourceSets {
         commonMain.dependencies {
+            // ConfigContent and the template bodies read the opaque JSON payload, so these
+            // types are part of this module's surface too — see the note in cmp-remote-config.
+            api(libs.kotlinx.serialization.json)
             // `api`, not `implementation`: this module's public surface takes and returns core
             // types (RemoteConfig, UiNode, ActionType), so a consumer must see them — and it keeps
             // a single `cmp-remote-config-compose` dependency sufficient to use the whole library.
             api(project(":cmp-remote-config"))
+
+            // The CTA destinations. `cta_action` is authored in the DASHBOARD, so the SDK is the
+            // only place that can act on it — making every consumer register a handler per
+            // action type is exactly the per-app work this library exists to remove.
+            implementation(libs.cmp.open.url)
+            // Connectivity, from the toolkit rather than hand-rolled here. An earlier version of
+            // this feature carried its own expect/actual across seven source sets — including an
+            // NWPathMonitor wrapper — to answer one question this library already answers for
+            // every target, with captive-portal detection and validation on top.
+            implementation(libs.cmp.network.monitor)
+            // Native in-app review for the `rating_prompt` template.
+            implementation(libs.cmp.app.review)
+            // In-app update for the `update_available` template.
+            implementation(libs.cmp.inapp.update)
 
             // Compose
             implementation(compose.material3)
@@ -139,6 +178,23 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            // In-memory Settings, so the scoped-host tests do not touch the real platform store.
+            implementation(libs.multiplatform.settings.test)
+            // The DSL test drives the wiring Koin actually produces, which needs an engine.
+            implementation(libs.ktor.client.mock)
+            implementation(libs.kotlinx.coroutines.test)
+        }
+
+        // Golden-image tests for the nine designed template bodies. JVM-only on purpose:
+        // Roborazzi renders through Compose Desktop, and a golden rendered once is a golden
+        // that holds for every target, because the bodies live in commonMain and share one
+        // composition. Running them per-platform would compare the same tree against itself.
+        jvmTest.dependencies {
+            implementation(libs.kotlin.test)
+            @OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+            implementation(compose.uiTest)
+            implementation(compose.desktop.currentOs)
+            implementation(libs.roborazzi.compose.desktop)
         }
     }
 }
@@ -185,5 +241,19 @@ mavenPublishing {
     }
 }
 
-// Library Runtime Observability — auto-generate CmpMetadata.kt for cmp-observe hooks
-apply(from = "$rootDir/cmp-observe-metadata.gradle.kts")
+// Library Runtime Observability — DELIBERATELY NOT APPLIED HERE.
+//
+// The generator derives its Kotlin package from the module's own sources, and this module's
+// sources share `com.mobilebytelabs.remoteconfig` with cmp-remote-config. Applying it in both
+// emitted `com.mobilebytelabs.remoteconfig.CmpMetadata` TWICE, and an Android app depending on
+// both artefacts — the normal case — failed to dex:
+//
+//     Type com.mobilebytelabs.remoteconfig.CmpMetadata is defined multiple times
+//
+// Nothing caught it because no Android consumer used both until `:sampleAndroidApp` existed.
+// This module never referenced the generated object (zero usages), so not generating it is
+// both the smallest fix and the right one: cmp-remote-config reports the version for the pair,
+// which is what the `X-RC-SDK-Version` header carries anyway.
+//
+// If this module ever needs its own metadata, the generator must disambiguate the package per
+// module rather than this line being restored.

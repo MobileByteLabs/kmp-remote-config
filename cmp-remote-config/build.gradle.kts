@@ -18,6 +18,15 @@ version = providers.gradleProperty("kmpremoteconfig.version").get()
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
 kotlin {
+    // Toolchain 21, not just jvmTarget 21.
+    //
+    // `jvmTarget` controls the bytecode we EMIT; it says nothing about the JDK that RUNS the
+    // tests. Gradle here launches on JDK 17, so with target-only the suite still failed with
+    // UnsupportedClassVersionError the moment it touched KmpToolkit's Java-21 classes — the
+    // exact error the raise was meant to remove. Declaring the toolchain makes the compile and
+    // test JVMs explicit instead of inheriting whatever JDK started the daemon.
+    jvmToolchain(21)
+
     applyDefaultHierarchyTemplate()
 
     android {
@@ -40,7 +49,19 @@ kotlin {
         }
 
         compilerOptions {
-            jvmTarget = JvmTarget.JVM_11
+            // JVM 21, raised from 11 (2026-10-09).
+            //
+            // KmpToolkit publishes its JVM artifacts at Java 21 — cmp-observe already, and
+            // cmp-open-url which the ActionDispatcher needs so a dashboard-authored CTA opens
+            // something. At JVM 11 those classes cannot load: cmp-observe's already degrades
+            // silently (RemoteConfigService catches the UnsupportedClassVersionError and falls
+            // back on the SDK version header), and cmp-open-url would have been a hard failure
+            // on the CTA path plus untestable, since this module's suite runs on the JVM.
+            //
+            // The cost is deliberate and is the operator's call: consumers on JVM 11-20 can no
+            // longer take this library. Raising the floor was chosen over shipping CTAs that
+            // only work on three of six platforms.
+            jvmTarget = JvmTarget.JVM_21
         }
         androidResources.enable = true
     }
@@ -96,9 +117,27 @@ kotlin {
         // DeviceIdProvider is supplied per platform via `defaultSettings()`. Two flavours only:
         // a platform-backed store where one exists, an in-memory one where the OS has none.
         val bundledSettingsMain = create("bundledSettingsMain").apply { dependsOn(getByName("commonMain")) }
-        listOf("androidMain", "jvmMain", "jsMain", "wasmJsMain", "appleMain").forEach {
+        // `Settings()` with no arguments lives in multiplatform-settings-NO-ARG, a separate
+        // artifact. It used to arrive transitively through supabase-postgrest; deleting the
+        // Supabase transport in the 5.0.0 migration removed it and this source set stopped
+        // compiling. Declared explicitly now — relying on a transport dependency to supply a
+        // storage factory was never intentional.
+        bundledSettingsMain.dependencies { implementation(libs.multiplatform.settings.no.arg) }
+        listOf("androidMain", "jvmMain", "appleMain").forEach {
             getByName(it).dependsOn(bundledSettingsMain)
         }
+
+        // js / wasmJs get their OWN flavour rather than joining either of the two above.
+        // `Settings()` IS declared for them, so this source set exists for a different reason than
+        // inMemorySettingsMain: multiplatform-settings' no-delegate branch evaluates the bare
+        // identifier `localStorage`, a BROWSER global. Under Node — SSR, jsNodeTest, any
+        // server-side host — that is a ReferenceError thrown at CONSTRUCTION, so the SDK fails to
+        // initialise at all instead of merely losing persistence. The fallback must not reach
+        // android/jvm/apple: there, a throwing `Settings()` is a real fault worth surfacing, not
+        // something to downgrade silently into a store that forgets on restart.
+        val webSettingsMain = create("webSettingsMain").apply { dependsOn(getByName("commonMain")) }
+        webSettingsMain.dependencies { implementation(libs.multiplatform.settings.no.arg) }
+        listOf("jsMain", "wasmJsMain").forEach { getByName(it).dependsOn(webSettingsMain) }
 
         val inMemorySettingsMain = create("inMemorySettingsMain").apply { dependsOn(getByName("commonMain")) }
         listOf("linuxMain", "mingwMain").forEach { getByName(it).dependsOn(inMemorySettingsMain) }
@@ -112,12 +151,23 @@ kotlin {
             // Reports this library's lifecycle to hooks the consumer registered. Pure stdlib since
             // the Firebase hooks moved to cmp-observe-firebase — 2 classpath lines, no transitive SDK.
             implementation(libs.cmp.observe)
-            // Supabase
-            implementation(libs.supabase.postgrest)
+            // HTTP transport to the rconfig control plane (/v1/configs, /v1/events).
+            // supabase-postgrest was removed in the 5.0.0 migration: the SDK no longer talks
+            // to a consumer's Supabase project directly. The HttpClient is INJECTED, so this
+            // module pulls no platform engine of its own and stays testable with MockEngine.
             implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
 
-            // Serialization
-            implementation(libs.kotlinx.serialization.json)
+            // Serialization — `api`, NOT `implementation`.
+            //
+            // The public surface exposes kotlinx-serialization types: `remoteConfigDefaults`
+            // returns a JsonObject, `RemoteConfigItem.payload` IS one, and the typed getters
+            // take and return them. With `implementation` those types are absent from a
+            // consumer's compile classpath and the integration the onboarding wizard prints
+            // does not compile — which is exactly what the sample module hit on its first
+            // build. A dependency that appears in your API is part of your API.
+            api(libs.kotlinx.serialization.json)
 
             // DI
             implementation(libs.koin.core)
@@ -134,6 +184,8 @@ kotlin {
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.ktor.client.mock)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }

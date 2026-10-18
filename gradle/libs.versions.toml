@@ -24,6 +24,7 @@ ktlint = "1.8.0"
 
 # Testing
 junit = "4.13.2"
+roborazzi = "1.74.0"
 robolectric = "4.14.1"
 # Emulated API level for Robolectric host tests. Pinned BELOW android-compileSdk on purpose:
 # Robolectric 4.14.1 ships images only to 35 and hard-fails on a higher targetSdk. Consumed by
@@ -71,6 +72,11 @@ kover = "0.9.9"
 
 [libraries]
 cmp-observe = { module = "io.github.mobilebytelabs:cmp-observe", version.ref = "cmpObserve" }
+# Same provenance as cmp-observe: consumed from Maven Central, never vendored. It carries the
+# expect/actual URL launcher the ActionDispatcher needs so a dashboard-authored CTA opens
+# something — re-implementing that here would duplicate a solved problem across six source sets.
+# Published at Java 21, which is why this repo's jvmTarget was raised to match.
+cmp-open-url = { module = "io.github.mobilebytelabs:cmp-open-url", version.ref = "cmpObserve" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
@@ -128,11 +134,13 @@ supabase-postgrest = { module = "io.github.jan-tennert.supabase:postgrest-kt", v
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-client-js = { module = "io.ktor:ktor-client-js", version.ref = "ktor" }
 ktor-client-curl = { module = "io.ktor:ktor-client-curl", version.ref = "ktor" }
 ktor-client-winhttp = { module = "io.ktor:ktor-client-winhttp", version.ref = "ktor" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 
 # Koin
 koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
@@ -174,14 +182,32 @@ navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-co
 
 # Settings
 multiplatform-settings = { module = "com.russhwolf:multiplatform-settings", version = "1.3.0" }
+multiplatform-settings-no-arg = { module = "com.russhwolf:multiplatform-settings-no-arg", version = "1.3.0" }
+# MapSettings — an in-memory Settings for tests, so a suite does not read or write the real
+# platform store and leak state between runs.
+multiplatform-settings-test = { module = "com.russhwolf:multiplatform-settings-test", version = "1.3.0" }
 
 # Image Loading
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version = "3.2.0" }
 coil-network-ktor = { module = "io.coil-kt.coil3:coil-network-ktor3", version = "3.2.0" }
 
 # KmpToolkit (for consumer reference — modules use project() internally)
-cmp-network-monitor = { module = "io.github.mobilebytelabs:cmp-network-monitor", version = "3.2.1" }
+# Same provenance as cmp-observe and cmp-open-url: consumed from Maven Central, never
+# vendored. Pinned to the same version ref as its siblings — it was left at a hardcoded
+# 3.2.1 while the rest of the toolkit moved on, which is how one artifact silently drifts
+# a release train behind the others it shares types with.
+cmp-network-monitor = { module = "io.github.mobilebytelabs:cmp-network-monitor", version.ref = "cmpObserve" }
+# Native in-app review (StoreKit / Play Review), with an openStoreListing fallback. The
+# `rating_prompt` template used to be a store URL, which is a worse version of this.
+cmp-app-review = { module = "io.github.mobilebytelabs:cmp-app-review", version.ref = "cmpObserve" }
+# In-app update (Play) for the `update_available` template: `forced` becomes an IMMEDIATE
+# flow rather than a dialog that throws the user at a listing they may never act on.
+# Alias is `cmp-inapp-update`, not `cmp-in-app-update`: the generated accessor would be
+# `libs.cmp.in.app.update`, and `in` is a Kotlin keyword — the build file fails to parse.
+cmp-inapp-update = { module = "io.github.mobilebytelabs:cmp-in-app-update", version.ref = "cmpObserve" }
 cmp-network-monitor-compose = { module = "io.github.mobilebytelabs:cmp-network-monitor-compose", version = "3.2.1" }
+
+roborazzi-compose-desktop = { module = "io.github.takahirom.roborazzi:roborazzi-compose-desktop", version.ref = "roborazzi" }
 
 [plugins]
 gradle-plugin-publish = { id = "com.gradle.plugin-publish", version.ref = "gradlePluginPublish" }
@@ -198,3 +224,4 @@ kotlinxSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 binaryCompatibilityValidator = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "kotlinx-binary-compatibility-validator" }
 dokka = { id = "org.jetbrains.dokka", version.ref = "dokka" }
 kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
