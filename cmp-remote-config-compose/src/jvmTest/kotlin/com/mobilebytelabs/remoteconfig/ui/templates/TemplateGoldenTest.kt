@@ -268,6 +268,18 @@ class TemplateGoldenTest {
         item("geo_notice", """{"title":"A note for users in the EU","body":"Your photos are stored on servers inside the EU, and we have updated how we describe cross-border transfers.","regions":["European Union"]}""", display = "dialog"),
     )
 
+    /**
+     * geo_notice on its OTHER declared display. `allowed_displays` is {dialog, banner} and the
+     * body branches between a column and the shared compact row, so capturing only the dialog
+     * would leave half the branch unrendered — the same blind spot that let five templates share
+     * one body unnoticed.
+     */
+    @Test
+    fun geo_notice_banner() = golden(
+        "geo_notice_banner",
+        item("geo_notice", """{"title":"A note for users in the EU","body":"Your photos are stored on servers inside the EU.","regions":["European Union"]}""", display = "banner"),
+    )
+
     @Test
     fun onboarding_tip_banner() = golden(
         "onboarding_tip",

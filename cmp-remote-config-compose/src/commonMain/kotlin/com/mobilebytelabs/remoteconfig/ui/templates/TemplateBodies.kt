@@ -418,11 +418,70 @@ internal fun PromoOfferBody(item: RemoteConfigItem, p: TemplatePayload, a: Templ
 // renderer follows. The divergence is deliberate and listed, not overlooked.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The compact row every BANNER-displayed template shares.
+ *
+ * A banner is pinned under the host's top bar over a still-usable app, so it has to stay short
+ * and must never carry a full-width button — that is a dialog's shape, and it looked exactly
+ * like one when `information` (allowed_displays `{banner}`) was first written as a column.
+ *
+ * Extracted rather than repeated because four templates reach it — information, onboarding_tip,
+ * and the banner halves of geo_notice and maintenance — and a row that drifts per template is
+ * how a surface stops looking like one component.
+ */
+@Composable
+private fun CompactNoticeRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tone: Color,
+    title: String,
+    body: String?,
+    detail: String? = null,
+    lead: String? = null,
+    action: Pair<String, () -> Unit>? = null,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Surface(
+            modifier = Modifier.padding(end = 12.dp).size(32.dp),
+            shape = RoundedCornerShape(8.dp),
+            color = tone.copy(alpha = 0.14f),
+        ) {
+            Icon(icon, contentDescription = null, tint = tone, modifier = Modifier.padding(6.dp))
+        }
+        Column(modifier = Modifier.fillMaxWidth(0.9f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            lead?.let { Eyebrow(it) }
+            Text(text = title, style = LocalDesign.titleStyle, fontWeight = FontWeight.SemiBold)
+            body?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            detail?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+            }
+            action?.let { (label, onClick) ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tone,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.clickable(onClick = onClick),
+                )
+            }
+        }
+    }
+}
+
 // ── information ──────────────────────────────────────────────────────────────
 // Mockup 10. The design's whole instruction is what it must NOT be: an outline info circle in
-// the neutral accent, no illustration, no marketing register, and ONE action — informational
-// copy carries no decision, so it must not offer a choice. Previously IncidentBody, which
+// the neutral accent, no illustration, no marketing register. Previously IncidentBody, which
 // opened with the amber "!" chip built for an outage.
+//
+// A ROW, not a column. allowed_displays is `{banner}` — migration 010 removed `inline` because
+// the SDK cannot draw it — so a banner is the ONLY surface this template ever renders on. The
+// first version here was a column ending in a full-width "Got it", which is a dialog pinned
+// under a top bar: too heavy for a notice whose own description is "low-urgency".
 @Composable
 internal fun InformationBody(item: RemoteConfigItem, p: TemplatePayload, a: TemplateActions) {
     // `severity` is the only tone input this schema declares, and it tops out at "warning" —
@@ -433,23 +492,12 @@ internal fun InformationBody(item: RemoteConfigItem, p: TemplatePayload, a: Temp
         else -> MaterialTheme.colorScheme.primary
     }
 
-    TemplateColumn {
-        Surface(
-            modifier = Modifier.size(32.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = tone.copy(alpha = 0.14f),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Info,
-                contentDescription = null,
-                tint = tone,
-                modifier = Modifier.padding(6.dp),
-            )
-        }
-        TemplateTitle(p.string("title", "A quick heads-up"))
-        p.string("body")?.let { TemplateBodyText(it) }
-        PrimaryAction("Got it") { a.onDismiss() }
-    }
+    CompactNoticeRow(
+        icon = Icons.Filled.Info,
+        tone = tone,
+        title = p.string("title", "A quick heads-up"),
+        body = p.string("body"),
+    )
 }
 
 // ── notification ─────────────────────────────────────────────────────────────
@@ -458,58 +506,40 @@ internal fun InformationBody(item: RemoteConfigItem, p: TemplatePayload, a: Temp
 // reads CALM and POSITIVE in the neutral accent, never the amber that belongs to
 // incident_outage, because the two can appear in the same app minutes apart and the user has
 // to tell them apart at a glance.
+// A COLUMN, not a row. allowed_displays is `{dialog, bottom_sheet}` — never a banner — and the
+// first version here was the compact banner row, which is a thin strip of content floating in a
+// modal. The schema REQUIRES cta_label and cta_action, so this template always asks for a
+// decision; it earns the full-width button that `information` must not have.
 @Composable
 internal fun NotificationBody(item: RemoteConfigItem, p: TemplatePayload, a: TemplateActions) {
     val tone = MaterialTheme.colorScheme.primary
 
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Surface(
-            modifier = Modifier.padding(end = 12.dp).size(32.dp),
-            shape = RoundedCornerShape(8.dp),
-            color = tone.copy(alpha = 0.14f),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.CheckCircle,
-                contentDescription = null,
-                tint = tone,
-                modifier = Modifier.padding(6.dp),
-            )
+    TemplateColumn {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier.padding(end = 10.dp).size(32.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = tone.copy(alpha = 0.14f),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = tone,
+                    modifier = Modifier.padding(6.dp),
+                )
+            }
+            Surface(modifier = Modifier.size(6.dp), shape = CircleShape, color = tone) {}
         }
-        Column(modifier = Modifier.fillMaxWidth(0.9f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = p.string("title", "Update"),
-                    style = LocalDesign.titleStyle,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Surface(
-                    modifier = Modifier.padding(start = 8.dp).size(6.dp),
-                    shape = CircleShape,
-                    color = tone,
-                ) {}
-            }
-            p.string("body")?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            // Unlike information's "Learn more", this link always has something behind it:
-            // cta_label and cta_action are both REQUIRED by this template's schema.
-            p.string("cta_label")?.let { label ->
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = tone,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clickable {
-                        parseCtaAction(p.string("cta_action"), fallback = ActionType.DEEPLINK)
-                            .let { a.onPrimary(it.type.value, it.value) }
-                    },
-                )
-            }
+        TemplateTitle(p.string("title", "Update"))
+        p.string("body")?.let { TemplateBodyText(it) }
+        // Unlike information's "Learn more", this always has something behind it: cta_label and
+        // cta_action are both REQUIRED by this template's schema, so the button can never be a
+        // control with nothing attached.
+        PrimaryAction(p.string("cta_label", "View")) {
+            parseCtaAction(p.string("cta_action"), fallback = ActionType.DEEPLINK)
+                .let { a.onPrimary(it.type.value, it.value) }
         }
+        if (item.isDismissible) SecondaryAction("Not now", a.onSecondary)
     }
 }
 
@@ -530,44 +560,18 @@ internal fun MaintenanceBody(item: RemoteConfigItem, p: TemplatePayload, a: Temp
     // 56dp icon over a full-width button is right for a takeover and far too heavy pinned under
     // a top bar; a compact row is right for a banner and looks lost on a full screen. Everything
     // below the branch is identical, so the two can never drift in CONTENT, only in density.
+    val bStart = p.string("window_start")
+    val bEnd = p.string("window_end")
+    val window = if (bStart != null && bEnd != null) formatWindow(bStart, bEnd) else null
+
     if (item.display == DisplayType.BANNER.value) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Surface(
-                modifier = Modifier.padding(end = 12.dp).size(32.dp),
-                shape = RoundedCornerShape(8.dp),
-                color = tone.copy(alpha = 0.14f),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Build,
-                    contentDescription = null,
-                    tint = tone,
-                    modifier = Modifier.padding(6.dp),
-                )
-            }
-            Column(modifier = Modifier.fillMaxWidth(0.9f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = p.string("title", "Back shortly"),
-                    style = LocalDesign.titleStyle,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                p.string("body")?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                val bStart = p.string("window_start")
-                val bEnd = p.string("window_end")
-                if (bStart != null && bEnd != null) {
-                    Text(
-                        formatWindow(bStart, bEnd),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
-        }
+        CompactNoticeRow(
+            icon = Icons.Filled.Build,
+            tone = tone,
+            title = p.string("title", "Back shortly"),
+            body = p.string("body"),
+            detail = window,
+        )
         return
     }
 
@@ -588,16 +592,12 @@ internal fun MaintenanceBody(item: RemoteConfigItem, p: TemplatePayload, a: Temp
         p.string("body")?.let { TemplateBodyText(it, center = true) }
 
         // The window is the one fact that turns "something is wrong" into "it ends at a known
-        // time", so it is shown rather than left to the body copy. formatWindow is the same
-        // helper incident_outage uses, so the two render a window identically.
-        val start = p.string("window_start")
-        val end = p.string("window_end")
-        if (start != null && end != null) {
-            Text(
-                formatWindow(start, end),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-            )
+        // time", so it is shown rather than left to the body copy. Computed once above and used
+        // by BOTH branches, so the banner and the takeover can never disagree about the window —
+        // and formatWindow is the same helper incident_outage uses, so every surface in the SDK
+        // renders a window identically.
+        window?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
         }
 
         // NOT onDismiss. A dismiss here would close the only thing standing between the user
@@ -616,11 +616,25 @@ internal fun MaintenanceBody(item: RemoteConfigItem, p: TemplatePayload, a: Temp
 @Composable
 internal fun GeoNoticeBody(item: RemoteConfigItem, p: TemplatePayload, a: TemplateActions) {
     val regions = p.strings("regions")
+    // Built from `regions`, the schema's own REQUIRED field — so the chip can never name a
+    // region the config was not actually targeted at.
+    val lead = regions.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+
+    // allowed_displays is `{dialog, banner}`, two different shapes, so this branches the way
+    // maintenance does. Content is identical either way; only the density changes.
+    if (item.display == DisplayType.BANNER.value) {
+        CompactNoticeRow(
+            icon = Icons.Filled.Place,
+            tone = MaterialTheme.colorScheme.primary,
+            title = p.string("title", "A note for your region"),
+            body = p.string("body"),
+            lead = lead,
+        )
+        return
+    }
 
     TemplateColumn {
-        // Built from `regions`, the schema's own required field — so the chip can never state a
-        // region the config was not actually targeted at.
-        if (regions.isNotEmpty()) {
+        lead?.let {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Filled.Place,
@@ -628,7 +642,7 @@ internal fun GeoNoticeBody(item: RemoteConfigItem, p: TemplatePayload, a: Templa
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(14.dp).padding(end = 2.dp),
                 )
-                Eyebrow(regions.joinToString(" · "))
+                Eyebrow(it)
             }
         }
         TemplateTitle(p.string("title", "A note for your region"))
@@ -644,15 +658,23 @@ internal fun GeoNoticeBody(item: RemoteConfigItem, p: TemplatePayload, a: Templa
 //
 // "Skip tips" is the secondary on purpose: the design opts out of the whole sequence, not just
 // this card, which is why it is not simply a dismiss.
+// A ROW. allowed_displays is `{banner}` — migration 010 removed `inline` because the SDK cannot
+// draw it, so a banner is the only surface a "contextual coachmark" gets today. The first
+// version was a column with a full-width button AND a secondary, which is a bottom sheet's
+// shape: the single most interrupting thing in this file, for the single least urgent template.
+//
+// "Skip tips" stays a real action rather than a plain dismiss — the design opts out of the
+// whole sequence, not just this card — but as a quiet trailing link, not a button.
 @Composable
 internal fun OnboardingTipBody(item: RemoteConfigItem, p: TemplatePayload, a: TemplateActions) {
-    TemplateColumn {
-        Eyebrow("Tip")
-        TemplateTitle(p.string("title", "Did you know?"))
-        p.string("body")?.let { TemplateBodyText(it) }
-        PrimaryAction("Try it") { a.onDismiss() }
-        if (item.isDismissible) SecondaryAction("Skip tips", a.onSecondary)
-    }
+    CompactNoticeRow(
+        icon = Icons.Filled.Info,
+        tone = MaterialTheme.colorScheme.primary,
+        title = p.string("title", "Did you know?"),
+        body = p.string("body"),
+        lead = "Tip",
+        action = if (item.isDismissible) "Skip tips" to a.onSecondary else null,
+    )
 }
 
 // ── rating_prompt ────────────────────────────────────────────────────────────
